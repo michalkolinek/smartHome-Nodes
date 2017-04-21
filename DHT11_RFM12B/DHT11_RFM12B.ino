@@ -35,8 +35,8 @@ ISR(WDT_vect) { Sleepy::watchdogEvent(); } // interrupt handler for JeeLabs Slee
 #define RETRY_PERIOD 1000   // How soon to retry (in ms) if ACK didn't come in
 #define RETRY_LIMIT 5     	// Maximum number of times to retry
 #define ACK_TIME 10       	// Number of milliseconds to wait for an ack
-
-#define tempPower 9      	// DHT Power pin is connected on pin 
+#define UPDATE_PERIOD 60000 // Number of milliseconds to wait for next measurement and upload
+#define TEMP_POWER 9      	// DHT Power pin is connected on pin 
 
 #include <dht11.h>
 #define DHT11PIN 10
@@ -60,25 +60,25 @@ void setup()
 	rf12_control(0xC040);
 	rf12_sleep(0);							// Put the RFM12 to sleep
 	analogReference(INTERNAL);  			// Set the aref to the internal 1.1V reference
-	pinMode(tempPower, OUTPUT); 			// set power pin for DHT11 to output
+	pinMode(TEMP_POWER, OUTPUT); 			// set power pin for DHT11 to output
 }
 
 void loop() 
 {
-	digitalWrite(tempPower, HIGH); 			// turn DHT11 sensor on
+	digitalWrite(TEMP_POWER, HIGH); 			// turn DHT11 sensor on
 	delay(1000);
 	int chk = DHT11.read(DHT11PIN);  
 	if(chk==DHTLIB_OK) {
 		tx.temp = DHT11.temperature;
 		tx.hum = DHT11.humidity;
 	}
-	digitalWrite(tempPower, LOW); 			// turn DHT11 sensor off
+	digitalWrite(TEMP_POWER, LOW); 			// turn DHT11 sensor off
 
 	tx.supplyV = readVcc(); 				// Get supply voltage
 
 	rfwrite(); 								// Send data via RF 
 
-	Sleepy::loseSomeTime(60000); 			// enter low power mode for 60 seconds (valid range 16-65000 ms)
+	Sleepy::loseSomeTime(UPDATE_PERIOD); 			// enter low power mode for 60 seconds (valid range 16-65000 ms)
 }
 
 
@@ -146,5 +146,6 @@ static byte waitForAck()
    	}
  	return 0;
 }
+
 
 
