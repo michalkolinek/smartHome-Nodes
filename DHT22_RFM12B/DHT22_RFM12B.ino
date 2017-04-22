@@ -93,8 +93,23 @@ void loop()
 // Send payload data via RF
 static void rfwrite()
 {
+	#ifdef USE_ACK
+		// tx and wait for ack up to RETRY_LIMIT times
+		for(byte i = 0; i <= RETRY_LIMIT; ++i) {  
+			rf12_sleep(-1);              // Wake up RF module
+			while (!rf12_canSend())
+			rf12_recvDone();
+			rf12_sendStart(RF12_HDR_ACK, &tx, sizeof tx); 
+			rf12_sendWait(2);           // Wait for RF to finish sending while in standby mode
+			byte acked = waitForAck();  // Wait for ACK
+			rf12_sleep(0);              // Put RF module to sleep
+			if (acked) { 
+				return; 				// Return if ACK received
+			}      
 
-
+			Sleepy::loseSomeTime(RETRY_PERIOD);     // If no ack received wait and try again
+		}
+	#else
 		rf12_sleep(-1);              // Wake up RF module
 		while (!rf12_canSend())
 		rf12_recvDone();
@@ -102,7 +117,7 @@ static void rfwrite()
 		rf12_sendWait(2);           // Wait for RF to finish sending while in standby mode
 		rf12_sleep(0);              // Put RF module to sleep
 		return;
-
+	#endif
 }
 
 // Read battery voltage
