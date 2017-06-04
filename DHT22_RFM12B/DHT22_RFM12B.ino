@@ -32,61 +32,67 @@ ISR(WDT_vect) { Sleepy::watchdogEvent(); } // interrupt handler for JeeLabs Slee
 #define network 210       	// RF12 Network group
 #define freq RF12_868MHZ  	// Frequency of RFM12B module
 
-#define RETRY_PERIOD 1000   // How soon to retry (in ms) if ACK didn't come in
+#define RETRY_PERIOD 300   // How soon to retry (in ms) if ACK didn't come in
 #define RETRY_LIMIT 5     	// Maximum number of times to retry
 #define ACK_TIME 10       	// Number of milliseconds to wait for an ack
-#define UPDATE_PERIOD 58000 // Number of milliseconds to wait for next measurement and upload, 2s wait to sensor wakeup
+// #define UPDATE_PERIOD 58000 // Number of milliseconds to wait for next measurement and upload, 2s wait to sensor wakeup
+#define UPDATE_PERIOD 5000
 
 #include <DHT22.h>
 
 #define DHT22_PIN 10     	// DHT sensor is connected on D10/ATtiny pin 13
 #define DHT22_POWER 9 		// DHT Power pin is connected on D9/ATtiny pin 12
 
+#define SENSOR_POWER_PIN 7	// soil humidity sensor power
+#define SENSOR_DATA_PIN A0	// soil humidity sensor analog read
+
 DHT22 dht(DHT22_PIN);
 
 // Data structure for communication
 typedef struct {
 	int supplyV;		// Supply voltage
-	int temp;			// Temperature reading	  
-	int hum;			// Actually humidity reading 
+	int temp;			// Temperature reading
+	int hum;			// Actually humidity reading
+	byte soil;			// soil humidity reading
 } Payload;
 
 Payload tx;
- 
 
-void setup() 
+
+void setup()
 {
-	rf12_initialize(nodeID,freq,network);	// Initialize RFM12 with settings defined above 
-
+	rf12_initialize(nodeID,freq,network);	// Initialize RFM12 with settings defined above
 	rf12_control(0xC040);
 	rf12_sleep(0);							// Put the RFM12 to sleep
-	// // analogReference(INTERNAL);  			// Set the aref to the internal 1.1V reference
+
+	analogReference(INTERNAL);  			// Set the aref to the internal 1.1V reference
 	pinMode(DHT22_POWER, OUTPUT); 			// set power pin for DHT11 to output
-	// dht.begin();
+	pinMode(SENSOR_POWER_PIN, OUTPUT); 		// set power pin for soil humidity sensor
+
 	PRR = bit(PRTIM1); // only keep timer 0 going
   	ADCSRA &= ~ bit(ADEN); bitSet(PRR, PRADC); // Disable the ADC to save power
 }
 
-void loop() 
+void loop()
 {
+
 	DHT22_ERROR_t errorCode;
 
 	digitalWrite(DHT22_POWER, HIGH); 			// turn DHT sensor on
-	Sleepy::loseSomeTime(2000); // Sensor requires minimum 2s warm-up after power-on.
-	
+	Sleepy::loseSomeTime(2000); 				// Sensor requires minimum 2s warm-up after power-on.
 	errorCode = dht.readData();
 	if(errorCode == DHT_ERROR_NONE) {
 		tx.temp = dht.getTemperatureCInt();
 		tx.hum = dht.getHumidityInt();
 	}
-	
 	digitalWrite(DHT22_POWER, LOW); 			// turn DHT11 sensor off
 
-	tx.supplyV = readVcc(); 				// Get supply voltage
+	tx.soil = readSoilSensor();					// get soil humidity reading
+	tx.supplyV = readVcc(); 					// Get supply voltage
 
-	rfwrite(); 
+	rfwrite();
 
-	Sleepy::loseSomeTime(UPDATE_PERIOD); 			// enter low power mode for 60 seconds (valid range 16-65000 ms)
+	Sleepy::loseSomeTime(UPDATE_PERIOD); 		// enter low power mode for 60 seconds (valid range 16-65000 ms)
 }
 
 
@@ -95,17 +101,17 @@ static void rfwrite()
 {
 	#ifdef USE_ACK
 		// tx and wait for ack up to RETRY_LIMIT times
-		for(byte i = 0; i <= RETRY_LIMIT; ++i) {  
+		for(byte i = 0; i <= RETRY_LIMIT; ++i) {
 			rf12_sleep(-1);              // Wake up RF module
 			while (!rf12_canSend())
 			rf12_recvDone();
-			rf12_sendStart(RF12_HDR_ACK, &tx, sizeof tx); 
+			rf12_sendStart(RF12_HDR_ACK, &tx, sizeof tx);
 			rf12_sendWait(2);           // Wait for RF to finish sending while in standby mode
 			byte acked = waitForAck();  // Wait for ACK
 			rf12_sleep(0);              // Put RF module to sleep
-			if (acked) { 
+			if (acked) {
 				return; 				// Return if ACK received
-			}      
+			}
 
 			Sleepy::loseSomeTime(RETRY_PERIOD);     // If no ack received wait and try again
 		}
@@ -113,7 +119,7 @@ static void rfwrite()
 		rf12_sleep(-1);              // Wake up RF module
 		while (!rf12_canSend())
 		rf12_recvDone();
-		rf12_sendStart(0, &tx, sizeof tx); 
+		rf12_sendStart(0, &tx, sizeof tx);
 		rf12_sendWait(2);           // Wait for RF to finish sending while in standby mode
 		rf12_sleep(0);              // Put RF module to sleep
 		return;
@@ -125,11 +131,11 @@ long readVcc() {
 	bitClear(PRR, PRADC); ADCSRA |= bit(ADEN); // Enable the ADC
 	long result;
 	// Read 1.1V reference against Vcc
-	#if defined(__AVR_ATtiny84__) 
+	#if defined(__AVR_ATtiny84__)
 	ADMUX = _BV(MUX5) | _BV(MUX0); // For ATtiny84
 	#else
 	ADMUX = _BV(REFS0) | _BV(MUX3) | _BV(MUX2) | _BV(MUX1);  // For ATmega328
-	#endif 
+	#endif
 	delay(2); // Wait for Vref to settle
 	ADCSRA |= _BV(ADSC); // Convert
 	while (bit_is_set(ADCSRA,ADSC));
@@ -140,14 +146,26 @@ long readVcc() {
 	return result;
 }
 
+byte readSoilSensor()
+{
+	byte value;
+	digitalWrite(SENSOR_POWER_PIN, HIGH); // set the sensor on
+	delay(10);
+	bitClear(PRR, PRADC); ADCSRA |= bit(ADEN); // Enable the ADC
+	value = analogRead(SENSOR_DATA_PIN);   // read the input pin
+	ADCSRA &= ~ bit(ADEN); bitSet(PRR, PRADC); // Disable the ADC to save power
+	digitalWrite(SENSOR_POWER_PIN, LOW); // set the sensor off
+	return value;
+}
+
 // Wait a few milliseconds for proper ACK
-static byte waitForAck() 
+static byte waitForAck()
 {
 	MilliTimer ackTimer;
 	while(!ackTimer.poll(ACK_TIME)) {
    		if(rf12_recvDone() && rf12_crc == 0 && rf12_hdr == (RF12_HDR_DST | RF12_HDR_CTL | nodeID)) {
    			return 1;
-   		}	  	
+   		}
    	}
  	return 0;
 }
