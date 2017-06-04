@@ -36,7 +36,7 @@ ISR(WDT_vect) { Sleepy::watchdogEvent(); } // interrupt handler for JeeLabs Slee
 #define RETRY_LIMIT 5     	// Maximum number of times to retry
 #define ACK_TIME 10       	// Number of milliseconds to wait for an ack
 #define UPDATE_PERIOD 60000 // Number of milliseconds to wait for next measurement and upload
-#define TEMP_POWER 9      	// DHT Power pin is connected on pin 
+#define TEMP_POWER 9      	// DHT Power pin is connected on pin
 
 #include <dht11.h>
 #define DHT11PIN 10
@@ -46,16 +46,16 @@ dht11 DHT11;
 // Data structure for communication
 typedef struct {
 	int supplyV;		// Supply voltage
-	int temp;			// Temperature reading	  
-	int hum;			// Actually humidity reading 
+	int temp;			// Temperature reading
+	int hum;			// Actually humidity reading
 } Payload;
 
 Payload tx;
- 
 
-void setup() 
+
+void setup()
 {
-	rf12_initialize(nodeID,freq,network);	// Initialize RFM12 with settings defined above 
+	rf12_initialize(nodeID,freq,network);	// Initialize RFM12 with settings defined above
 
 	rf12_control(0xC040);
 	rf12_sleep(0);							// Put the RFM12 to sleep
@@ -63,11 +63,11 @@ void setup()
 	pinMode(TEMP_POWER, OUTPUT); 			// set power pin for DHT11 to output
 }
 
-void loop() 
+void loop()
 {
 	digitalWrite(TEMP_POWER, HIGH); 			// turn DHT11 sensor on
 	delay(1000);
-	int chk = DHT11.read(DHT11PIN);  
+	int chk = DHT11.read(DHT11PIN);
 	if(chk==DHTLIB_OK) {
 		tx.temp = DHT11.temperature;
 		tx.hum = DHT11.humidity;
@@ -76,9 +76,13 @@ void loop()
 
 	tx.supplyV = readVcc(); 				// Get supply voltage
 
-	rfwrite(); 								// Send data via RF 
+	rfwrite(); 								// Send data via RF
 
-	Sleepy::loseSomeTime(UPDATE_PERIOD); 			// enter low power mode for 60 seconds (valid range 16-65000 ms)
+    Sleepy::loseSomeTime(UPDATE_PERIOD);            // enter low power mode for 60 seconds (valid range 16-65000 ms)
+	Sleepy::loseSomeTime(UPDATE_PERIOD);
+	Sleepy::loseSomeTime(UPDATE_PERIOD);
+	Sleepy::loseSomeTime(UPDATE_PERIOD);
+	Sleepy::loseSomeTime(UPDATE_PERIOD);
 }
 
 
@@ -87,17 +91,17 @@ static void rfwrite()
 {
 	#ifdef USE_ACK
 		// tx and wait for ack up to RETRY_LIMIT times
-		for(byte i = 0; i <= RETRY_LIMIT; ++i) {  
+		for(byte i = 0; i <= RETRY_LIMIT; ++i) {
 			rf12_sleep(-1);              // Wake up RF module
 			while (!rf12_canSend())
 			rf12_recvDone();
-			rf12_sendStart(RF12_HDR_ACK, &tx, sizeof tx); 
+			rf12_sendStart(RF12_HDR_ACK, &tx, sizeof tx);
 			rf12_sendWait(2);           // Wait for RF to finish sending while in standby mode
 			byte acked = waitForAck();  // Wait for ACK
 			rf12_sleep(0);              // Put RF module to sleep
-			if (acked) { 
+			if (acked) {
 				return; 				// Return if ACK received
-			}      
+			}
 
 			Sleepy::loseSomeTime(RETRY_PERIOD);     // If no ack received wait and try again
 		}
@@ -105,7 +109,7 @@ static void rfwrite()
 		rf12_sleep(-1);              // Wake up RF module
 		while (!rf12_canSend())
 		rf12_recvDone();
-		rf12_sendStart(0, &tx, sizeof tx); 
+		rf12_sendStart(0, &tx, sizeof tx);
 		rf12_sendWait(2);           // Wait for RF to finish sending while in standby mode
 		rf12_sleep(0);              // Put RF module to sleep
 		return;
@@ -113,18 +117,18 @@ static void rfwrite()
 }
 
 // Read battery voltage
-long readVcc() 
+long readVcc()
 {
 	bitClear(PRR, PRADC); ADCSRA |= bit(ADEN); // Enable the ADC
 	long result;
-	
+
 	// Read 1.1V reference against Vcc
-	#if defined(__AVR_ATtiny84__) 
+	#if defined(__AVR_ATtiny84__)
 		ADMUX = _BV(MUX5) | _BV(MUX0); // For ATtiny84
 	#else
 		ADMUX = _BV(REFS0) | _BV(MUX3) | _BV(MUX2) | _BV(MUX1);  // For ATmega328
-	#endif 
-	
+	#endif
+
 	delay(2); // Wait for Vref to settle
 	ADCSRA |= _BV(ADSC); // Convert
 	while (bit_is_set(ADCSRA,ADSC));
@@ -133,16 +137,16 @@ long readVcc()
 	result = 1126400L / result; // Back-calculate Vcc in mV
 	ADCSRA &= ~ bit(ADEN); bitSet(PRR, PRADC); // Disable the ADC to save power
 	return result;
-} 
+}
 
 // Wait a few milliseconds for proper ACK
-static byte waitForAck() 
+static byte waitForAck()
 {
 	MilliTimer ackTimer;
 	while(!ackTimer.poll(ACK_TIME)) {
    		if(rf12_recvDone() && rf12_crc == 0 && rf12_hdr == (RF12_HDR_DST | RF12_HDR_CTL | nodeID)) {
    			return 1;
-   		}	  	
+   		}
    	}
  	return 0;
 }
