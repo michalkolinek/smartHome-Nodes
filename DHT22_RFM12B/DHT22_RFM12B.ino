@@ -35,16 +35,15 @@ ISR(WDT_vect) { Sleepy::watchdogEvent(); } // interrupt handler for JeeLabs Slee
 #define RETRY_PERIOD 300   // How soon to retry (in ms) if ACK didn't come in
 #define RETRY_LIMIT 5     	// Maximum number of times to retry
 #define ACK_TIME 10       	// Number of milliseconds to wait for an ack
-// #define UPDATE_PERIOD 58000 // Number of milliseconds to wait for next measurement and upload, 2s wait to sensor wakeup
-#define UPDATE_PERIOD 5000
+#define UPDATE_PERIOD 58000 // Number of milliseconds to wait for next measurement and upload, 2s wait to sensor wakeup
 
 #include <DHT22.h>
 
-#define DHT22_PIN 10     	// DHT sensor is connected on D10/ATtiny pin 13
-#define DHT22_POWER 9 		// DHT Power pin is connected on D9/ATtiny pin 12
+#define DHT22_PIN 9	    	// DHT sensor is connected on D10/ATtiny pin 13
+#define DHT22_POWER 8 		// DHT Power pin is connected on D9/ATtiny pin 12
 
-#define SENSOR_POWER_PIN 7	// soil humidity sensor power
-#define SENSOR_DATA_PIN A0	// soil humidity sensor analog read
+#define SENSOR_POWER_PIN 7	// soil moist sensor power
+#define SENSOR_DATA_PIN A0	// soil moist sensor analog reading A3
 
 DHT22 dht(DHT22_PIN);
 
@@ -53,7 +52,7 @@ typedef struct {
 	int supplyV;		// Supply voltage
 	int temp;			// Temperature reading
 	int hum;			// Actually humidity reading
-	byte soil;			// soil humidity reading
+	int moist;			// soil moisture reading
 } Payload;
 
 Payload tx;
@@ -65,11 +64,11 @@ void setup()
 	rf12_control(0xC040);
 	rf12_sleep(0);							// Put the RFM12 to sleep
 
-	analogReference(INTERNAL);  			// Set the aref to the internal 1.1V reference
+	analogReference(DEFAULT);  				// Set the aref to the internal 1.1V reference
 	pinMode(DHT22_POWER, OUTPUT); 			// set power pin for DHT11 to output
 	pinMode(SENSOR_POWER_PIN, OUTPUT); 		// set power pin for soil humidity sensor
 
-	PRR = bit(PRTIM1); // only keep timer 0 going
+	PRR = bit(PRTIM1); 						// only keep timer 0 going
   	ADCSRA &= ~ bit(ADEN); bitSet(PRR, PRADC); // Disable the ADC to save power
 }
 
@@ -87,12 +86,16 @@ void loop()
 	}
 	digitalWrite(DHT22_POWER, LOW); 			// turn DHT11 sensor off
 
-	tx.soil = readSoilSensor();					// get soil humidity reading
+	tx.moist = 1023 - readMoistSensor();			// get soil humidity reading
 	tx.supplyV = readVcc(); 					// Get supply voltage
 
 	rfwrite();
 
 	Sleepy::loseSomeTime(UPDATE_PERIOD); 		// enter low power mode for 60 seconds (valid range 16-65000 ms)
+	Sleepy::loseSomeTime(UPDATE_PERIOD);
+	Sleepy::loseSomeTime(UPDATE_PERIOD);
+	Sleepy::loseSomeTime(UPDATE_PERIOD);
+	Sleepy::loseSomeTime(UPDATE_PERIOD);
 }
 
 
@@ -127,9 +130,9 @@ static void rfwrite()
 }
 
 // Read battery voltage
-long readVcc() {
+int readVcc() {
 	bitClear(PRR, PRADC); ADCSRA |= bit(ADEN); // Enable the ADC
-	long result;
+	int result;
 	// Read 1.1V reference against Vcc
 	#if defined(__AVR_ATtiny84__)
 	ADMUX = _BV(MUX5) | _BV(MUX0); // For ATtiny84
@@ -146,12 +149,12 @@ long readVcc() {
 	return result;
 }
 
-byte readSoilSensor()
+int readMoistSensor()
 {
-	byte value;
+	int value;
 	digitalWrite(SENSOR_POWER_PIN, HIGH); // set the sensor on
-	delay(10);
 	bitClear(PRR, PRADC); ADCSRA |= bit(ADEN); // Enable the ADC
+	delay(10);
 	value = analogRead(SENSOR_DATA_PIN);   // read the input pin
 	ADCSRA &= ~ bit(ADEN); bitSet(PRR, PRADC); // Disable the ADC to save power
 	digitalWrite(SENSOR_POWER_PIN, LOW); // set the sensor off
