@@ -11,7 +11,6 @@
 //----------------------------------------------------------------------------------------------------------------------
 
 #include <JeeLib.h> // https://github.com/jcw/jeelib
-#include <PinChangeInterrupt.h> // http://code.google.com/p/arduino-tiny/downloads/list
 #include <dht11.h>
 
 #define nodeID 4            // RF12 node ID in the range 1-30
@@ -22,13 +21,16 @@
 #define RETRY_PERIOD 5    // How soon to retry (in seconds) if ACK didn't come in
 #define RETRY_LIMIT 5     // Maximum number of times to retry
 #define ACK_TIME 10       // Number of milliseconds to wait for an ack
-#define UPDATE_PERIOD 60000       // Number of milliseconds to wait for an ack
+#define UPDATE_PERIOD 50       // Number of milliseconds to wait for an ack
+#define UPDATE_CYCLES 1180     // Number of cycles between reports
 
-#define SW_PIN 10 // D10
-#define LED_PIN 0 // D0
+#define VOLTAGE_PIN A0
+#define LED_PIN 3 // D3
 
 #define DHT11_DATA_PIN 9
 #define DHT11_POWER_PIN 8
+
+#define VOLTAGE_TRESHOLD 550
 
 //########################################################################################################################
 //Data Structure to be sent
@@ -45,8 +47,8 @@ typedef struct {
 
 Payload tx;
 
-volatile int signal;
-volatile int interrupted;
+int cycles;
+int counter;
 
 ISR(WDT_vect) { Sleepy::watchdogEvent(); } // interrupt handler for JeeLabs Sleepy power saving
 
@@ -56,13 +58,8 @@ void setup() {
 
   rf12_initialize(nodeID,freq,network); // Initialize RFM12 with settings defined above
   rf12_sleep(0);                          // Put the RFM12 to sleep
-
-  signal = 0;
-  interrupted = false;
-
-  pinMode(SW_PIN, INPUT);                   //set the pin to input
-  digitalWrite(SW_PIN, HIGH);               //use the internal pullup resistor
-  attachPcInterrupt(SW_PIN, handleInterrupt, RISING); // attach a PinChange Interrupt on the falling edge
+  cycles = 0;
+  counter = 0;
 
   pinMode(LED_PIN, OUTPUT);
   digitalWrite(LED_PIN, LOW);
@@ -72,62 +69,45 @@ void setup() {
   pinMode(DHT11_POWER_PIN, OUTPUT);
   digitalWrite(DHT11_POWER_PIN, LOW);
 
-  TCCR1A = 0;    // set entire TCCR1A register to 0
-  TCCR1B = 0;    // set entire TCCR1A register to 0
-
-  bitSet(TIMSK1, TOIE1);
-  TCNT1 = 0;
-
-  // set 1024 prescaler
-  bitSet(TCCR1B, CS12);
-  bitSet(TCCR1B, CS10);
+  analogReference(DEFAULT);
 }
 
 void loop() {
-
-    noInterrupts();
-    digitalWrite(LED_PIN, HIGH);
-    Sleepy::loseSomeTime(50);
-    digitalWrite(LED_PIN, LOW);
-
-  if(interrupted) {
-    if(signal >= 3) {
-      Sleepy::loseSomeTime(100);
-      digitalWrite(LED_PIN, HIGH);
-      Sleepy::loseSomeTime(100);
-      digitalWrite(LED_PIN, LOW);
-
-      tx.signal = 1;
-      tx.temp = NULL;
-      tx.hum = NULL;
-      tx.supplyV = NULL;
-      rfwrite();
-
-      signal = 0;
-    }
-
-    interrupted = false;
-  } else {
-      tx.signal = 0;
-      digitalWrite(DHT11_POWER_PIN, HIGH);     // turn DHT11 sensor on
-      delay(1000);
-      int chk = DHT11.read(DHT11_DATA_PIN);
-      if(chk==DHTLIB_OK) {
-          tx.temp = DHT11.temperature;
-          tx.hum = DHT11.humidity;
-      }
-      digitalWrite(DHT11_POWER_PIN, LOW);      // turn DHT11 sensor off
-      tx.supplyV = readVcc();         // Get supply voltage
-      rfwrite();
+  int v = readExtVoltage();
+  if(v > VOLTAGE_TRESHOLD) {
+    counter++;
   }
 
-  interrupts();
-  Sleepy::loseSomeTime(UPDATE_PERIOD);
+  if(cycles == UPDATE_CYCLES) {
+    tx.signal = counter;
+    digitalWrite(DHT11_POWER_PIN, HIGH);     // turn DHT11 sensor on
+    delay(1000);
+    int chk = DHT11.read(DHT11_DATA_PIN);
+    if(chk==DHTLIB_OK) {
+        tx.temp = DHT11.temperature;
+        tx.hum = DHT11.humidity;
+    }
+    digitalWrite(DHT11_POWER_PIN, LOW);      // turn DHT11 sensor off
+    tx.supplyV = readVcc();         // Get supply voltage
+    rfwrite();
+
+    counter = 0;
+    cycles = 0;
+  }
+
+  cycles++;
+
+  // Sleepy::loseSomeTime(UPDATE_PERIOD);
+  delay(UPDATE_PERIOD);
 }
 
-void handleInterrupt() {
-  signal++;
-  interrupted = true;
+int readExtVoltage() {
+  int value;
+  bitClear(PRR, PRADC); ADCSRA |= bit(ADEN); // Enable the ADC
+  delay(10);
+  value = analogRead(VOLTAGE_PIN);   // read the input pin
+  ADCSRA &= ~ bit(ADEN); bitSet(PRR, PRADC); // Disable the ADC to save power
+  return value;
 }
 
 //--------------------------------------------------------------------------------------------------
