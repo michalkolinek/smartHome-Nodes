@@ -100,6 +100,7 @@ function connectMQTT() {
 
 function handleMqttMessage(msg) {
     var data = JSON.parse(msg.message);
+
     if(data.action === 'start') {
     	setPower(true);
     }
@@ -113,7 +114,8 @@ function handleMqttMessage(msg) {
 
 function setPower(status) {
   console.log('Power: ' + (status ? 'ON' : 'OFF'));
-  digitalWrite(D0, status ? HIGH : LOW);
+  power = status;
+  digitalWrite(D0, status ? LOW : HIGH);
 
   if(mqttReady) {
     var topic = "smarthome/sprinklers/pump";
@@ -126,8 +128,8 @@ function setPower(status) {
 
 function sendStatus() {
 	if(mqttReady) {
-      var topic = "smarthome/sprinklers/pump";
-      mqtt.publish(topic, {power: power});
+      var topic = "smarthome/sprinkler/pump";
+      mqtt.publish(topic, JSON.stringify({power: power}));
     } else {
       console.log("MQTT not ready"); 
     }

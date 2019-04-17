@@ -25,6 +25,7 @@ INT0  PWM (D2) PB2  5|    |10  PA3 (D7)
 */
 
 #include <JeeLib.h> // https://github.com/jcw/jeelib
+#include <avr/sleep.h>
 
 ISR(WDT_vect) { Sleepy::watchdogEvent(); } // interrupt handler for JeeLabs Sleepy power saving
 
@@ -32,11 +33,11 @@ ISR(WDT_vect) { Sleepy::watchdogEvent(); } // interrupt handler for JeeLabs Slee
 #define network 210       	// RF12 Network group
 #define freq RF12_868MHZ  	// Frequency of RFM12B module
 
-#define RETRY_PERIOD 1000   // How soon to retry (in ms) if ACK didn't come in
+#define RETRY_PERIOD 1100   // How soon to retry (in ms) if ACK didn't come in
 #define RETRY_LIMIT 5     	// Maximum number of times to retry
 #define ACK_TIME 10       	// Number of milliseconds to wait for an ack
-#define UPDATE_PERIOD 300000 	// 5min
 #define MEASURING_PERIOD 10000 	// 10 sec
+#define MEASUREMENTS_COUNT 30
 
 #define ANEMO_SENSOR_PIN 0
 #define ANEMO_POWER_PIN 3
@@ -46,34 +47,34 @@ ISR(WDT_vect) { Sleepy::watchdogEvent(); } // interrupt handler for JeeLabs Slee
 
 #define LED_POWER_PIN 10
 
-
 // Data structure for communication
 typedef struct {
 	int supplyV;		// Supply voltage
-    int avg;
-    int max;
-    int rain;
+    short avg;
+    short max;
+    short rain;
 } Payload;
 
 Payload tx;
-const int length = 30;
-volatile int anemoCounter;
-volatile int rainCounter;
-long measuringTimer;
-long updateTimer;
-int values[length];
-int i = 0;
-volatile bool p = LOW;
+volatile short anemoCounter;
+volatile short rainCounter;
+unsigned long measuringTimer;
+short values[MEASUREMENTS_COUNT];
+short i = 0;
 
 ISR(PCINT0_vect) { 
 	// if(digitalRead(RAIN_SENSOR_PIN) == HIGH) {
 		rainCounter++;
+		// p = !p;
+		// digitalWrite(LED_POWER_PIN, p);
 	// }
 }
 
 ISR(PCINT1_vect) { 
 	// if(digitalRead(ANEMO_SENSOR_PIN) == HIGH) {
 		anemoCounter++;
+		// p = !p;
+		// digitalWrite(LED_POWER_PIN, p);
 	// }
 }
 
@@ -92,53 +93,57 @@ void setup()
     digitalWrite(RAIN_POWER_PIN, HIGH);
 
     pinMode(LED_POWER_PIN, OUTPUT);
-    digitalWrite(LED_POWER_PIN, p);
+    digitalWrite(LED_POWER_PIN, LOW);
 
+    PRR = bit(PRTIM1);
 	ADCSRA &= ~ bit(ADEN); bitSet(PRR, PRADC);
     
     resetValues();
     measuringTimer = millis();
-    updateTimer = millis();
 
     GIMSK = (1<<PCIE0)|(1<<PCIE1);
   	PCMSK1 = (1<<PCINT8);  // ANEMO_SENSOR_PIN
   	PCMSK0 = (1<<PCINT3);  // RAIN_SENSOR_PIN
-    sei();
+    interrupts();
 }
 
 void loop()
 {
     if(millis() - measuringTimer >= MEASURING_PERIOD) {
+    	measuringTimer = millis();
     	values[i] = anemoCounter;
     	i++;
-      	anemoCounter = 0;
-    	measuringTimer = millis();
+      	anemoCounter = 0;    	
     }
 
-    if(millis() - updateTimer >= UPDATE_PERIOD) {
-    	int sum = 0;
-    	int max = 0;
-    	for(int j = 0; j < length; j++) {
+    if(i == MEASUREMENTS_COUNT) {
+    	digitalWrite(LED_POWER_PIN, HIGH);
+    	delay(100);
+    	digitalWrite(LED_POWER_PIN, LOW);
+
+    	short sum = 0;
+    	short max = 0;
+    	for(short j = 0; j < i; j++) {
     		sum += values[j];
     		max = max(max, values[j]);
     	}
 
-    	tx.avg = (int) (sum / length);
+    	tx.avg = (short) (sum / i);
     	tx.max = max;
     	tx.rain = rainCounter;
     	tx.supplyV = readVcc();
-		rfwrite(); 
 
 		resetValues();
-		i = 0;									
-		updateTimer = millis();
-    }
+		i = 0;
 
-    Sleepy::loseSomeTime(MEASURING_PERIOD);	
+		rfwrite(); 
+    }	
+
+    Sleepy::loseSomeTime(300);
 }
 
 void resetValues() {
-	for(int j = 0; j < length; j++) {
+	for(short j = 0; j < MEASUREMENTS_COUNT; j++) {
 		values[j] = 0;
 	}
 	rainCounter = 0;
@@ -209,6 +214,15 @@ static byte waitForAck()
    	}
  	return 0;
 }
+
+
+
+
+
+
+
+
+
 
 
 
