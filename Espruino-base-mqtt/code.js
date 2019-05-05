@@ -6,7 +6,8 @@ var WIFI_OPTIONS = { password : "abcabcabca" };
 
 var WIFI_REPEAT_PERIOD = 5000;
 var MQTT_REPEAT_PERIOD = 5000;
-var KEEP_ALIVE_PERIOD = 60000;
+var MQTT_FAILS_TO_RESTART = 10;
+var KEEP_ALIVE_PERIOD = 300000;
 
 var MQTT_SERVER = "192.168.1.103";
 var MQTT_OPTIONS = {
@@ -21,6 +22,7 @@ var power = false;
 var mqtt;
 var connectionTimer = null;
 var mqttReady = false;
+var mqttFails = 0;
 
 mqtt = MQTT.create(MQTT_SERVER, MQTT_OPTIONS);
 
@@ -65,6 +67,7 @@ function init() {
 }
 
 function connectWifi() {
+  wifi.stopAP();
   wifi.connect(WIFI_NAME, WIFI_OPTIONS, (err) => {
     if (err) {
       console.log('Wifi connection failed');
@@ -100,8 +103,13 @@ function keepAlive() {
       mqtt.publish(topic, 'ping');
     } else {
       console.log("MQTT not ready"); 
+      mqttFails++;
     }
-    keepAlive();
+    if(mqttFails > MQTT_FAILS_TO_RESTART) {
+      load();
+    } else {
+      keepAlive();
+    }
   }, KEEP_ALIVE_PERIOD);
 }
 

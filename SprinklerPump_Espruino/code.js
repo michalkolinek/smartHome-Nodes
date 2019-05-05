@@ -1,12 +1,13 @@
 var wifi = require('Wifi');
 var MQTT = require("MQTT");
 
-var WIFI_NAME = "kolinet_2.4GHz";
+var WIFI_NAME = "kolinet_out";
 var WIFI_OPTIONS = { password : "abcabcabca" };
 
 var WIFI_REPEAT_PERIOD = 5000;
 var MQTT_REPEAT_PERIOD = 5000;
-var KEEP_ALIVE_PERIOD = 60000;
+var MQTT_FAILS_TO_RESTART = 10;
+var KEEP_ALIVE_PERIOD = 300000;
 
 var MQTT_SERVER = "192.168.1.103";
 var MQTT_OPTIONS = {
@@ -21,6 +22,7 @@ var power = false;
 var mqtt;
 var connectionTimer = null;
 var mqttReady = false;
+var mqttFails = 0;
 
 mqtt = MQTT.create(MQTT_SERVER, MQTT_OPTIONS);
 
@@ -64,7 +66,7 @@ function onInit() {
 function init() {
     console.log('Starting up...');
     pinMode(D0, 'output');
-    digitalWrite(D0, LOW);
+    digitalWrite(D0, HIGH);
     connectWifi();
     keepAlive();
 }
@@ -123,6 +125,7 @@ function setPower(status) {
     mqtt.publish(topic, message, {qos: 2, retain: true});
   } else {
      console.log("MQTT not ready"); 
+     mqttFails++;
   }
 }
 
@@ -132,10 +135,14 @@ function sendStatus() {
       mqtt.publish(topic, JSON.stringify({power: power}));
     } else {
       console.log("MQTT not ready"); 
+      mqttFails++;
     }
 }
 
 function keepAlive() {
+  if(mqttFails > MQTT_FAILS_TO_RESTART) {
+     load(); 
+  }
   setTimeout(() => {
   	sendStatus();
     keepAlive();

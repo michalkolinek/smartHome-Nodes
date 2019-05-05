@@ -25,7 +25,6 @@ INT0  PWM (D2) PB2  5|    |10  PA3 (D7)
 */
 
 #include <JeeLib.h> // https://github.com/jcw/jeelib
-#include <avr/sleep.h>
 
 ISR(WDT_vect) { Sleepy::watchdogEvent(); } // interrupt handler for JeeLabs Sleepy power saving
 
@@ -137,9 +136,7 @@ void loop()
 		i = 0;
 
 		rfwrite(); 
-    }	
-
-    Sleepy::loseSomeTime(300);
+    }
 }
 
 void resetValues() {
