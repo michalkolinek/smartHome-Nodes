@@ -27,7 +27,7 @@ var mqttFails = 0;
 mqtt = MQTT.create(MQTT_SERVER, MQTT_OPTIONS);
 
 mqtt.on('connected', () => {
-    clearInterval(connectionTimer);
+    clearTimeout(connectionTimer);
     console.log("MQTT connected");
     mqttReady = true;
     mqtt.subscribe("smarthome/controls/circulation");
@@ -36,8 +36,8 @@ mqtt.on('connected', () => {
 mqtt.on('disconnected', () => {
     mqttReady = false;
     console.log("MQTT disconnected");
-    clearInterval(connectionTimer);
-    setTimeout(() => {
+    clearTimeout(connectionTimer);
+    connectionTimer = setTimeout(() => {
         connectMQTT();
     }, MQTT_REPEAT_PERIOD);
 });
@@ -45,8 +45,8 @@ mqtt.on('disconnected', () => {
 mqtt.on('error', () => {
      mqttReady = false;
      console.log("MQTT error");
-     clearInterval(connectionTimer);
-     setTimeout(() => {
+     clearTimeout(connectionTimer);
+     connectionTimer = setTimeout(() => {
        connectMQTT();
      }, MQTT_REPEAT_PERIOD);
 });
@@ -56,12 +56,6 @@ mqtt.on('subscribed', () => {
 });
 
 mqtt.on('publish', (msg) => handleMqttMessage(msg));
-
-
-function onInit() {
-  console.log('onInit');
-  init(); 
-}
 
 function init() {
     console.log('Starting up...');
@@ -94,6 +88,7 @@ function connectWifi() {
 
 function connectMQTT() {
     mqtt.connect();
+    clearTimeout(connectionTimer);
     connectionTimer = setTimeout(() => {
         console.log('MQTT reconnecting...');
         connectMQTT();
@@ -102,15 +97,19 @@ function connectMQTT() {
 
 function handleMqttMessage(msg) {
     var data = JSON.parse(msg.message);
+  console.log(data);
     if(data.power !== undefined) {
         setPower(data.power);
     }
 }
 
 function setPower(status) {
-  console.log('Power: ' + (status ? 'ON' : 'OFF'));
+  console.log('power: ' + (status ? 'on' : 'off'));
   digitalWrite(D0, status ? LOW : HIGH); // prehozeno zamerne
+  sendStatus();
+}
 
+function sendStatus() {
   if(mqttReady) {
     var topic = "smarthome/circulation";
     var message = JSON.stringify({power: status});
@@ -123,13 +122,7 @@ function setPower(status) {
 
 function keepAlive() {
   setTimeout(() => {
-    if(mqttReady) {
-      var topic = "smarthome/circulation";
-      mqtt.publish(topic, 'ping');
-    } else {
-      console.log("MQTT not ready"); 
-      mqttFails++;
-    }
+    sendStatus();
     if(mqttFails > MQTT_FAILS_TO_RESTART) {
     	load();
     } else {

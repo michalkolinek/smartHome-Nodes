@@ -1,7 +1,7 @@
 var wifi = require('Wifi');
 var MQTT = require("MQTT");
 
-var WIFI_NAME = "kolinet_2.4GHz";
+var WIFI_NAME = "kolinet_out";
 var WIFI_OPTIONS = { password : "abcabcabca" };
 
 var WIFI_REPEAT_PERIOD = 5000;
@@ -18,28 +18,40 @@ var MQTT_OPTIONS = {
     protocol_name: "MQTT"
 };
 
-var power = false;
 var mqtt;
 var connectionTimer = null;
 var mqttReady = false;
 var mqttFails = 0;
+
+var signals = {
+	relay1: {on: "\xA0\x01\x01\xA2", off: "\xA0\x01\x00\xA1"},
+	relay2: {on: "\xA0\x02\x01\xA3", off: "\xA0\x02\x00\xA2"},
+	relay3: {on: "\xA0\x03\x01\xA4", off: "\xA0\x03\x00\xA3"},
+	relay4: {on: "\xA0\x04\x01\xA5", off: "\xA0\x04\x00\xA4"}
+};
+
+var status = {
+	relay1: false,
+	relay2: false,
+	relay3: false,
+	relay4: false
+};
 
 Serial1.setup(115200, { tx: D1, rx: D3 });
 
 mqtt = MQTT.create(MQTT_SERVER, MQTT_OPTIONS);
 
 mqtt.on('connected', () => {
-    clearInterval(connectionTimer);
+    clearTimeout(connectionTimer);
     console.log("MQTT connected");
-    mqttReady = true;
     mqtt.subscribe("smarthome/controls/sprinkler");
 });
 
 mqtt.on('disconnected', () => {
     mqttReady = false;
     console.log("MQTT disconnected");
-    clearInterval(connectionTimer);
-    setTimeout(() => {
+    clearTimeout(connectionTimer);
+    connectionTimer = setTimeout(() => {
         connectMQTT();
     }, MQTT_REPEAT_PERIOD);
 });
@@ -47,28 +59,21 @@ mqtt.on('disconnected', () => {
 mqtt.on('error', () => {
      mqttReady = false;
      console.log("MQTT error");
-     clearInterval(connectionTimer);
-     setTimeout(() => {
+     clearTimeout(connectionTimer);
+     connectionTimer = setTimeout(() => {
        connectMQTT();
      }, MQTT_REPEAT_PERIOD);
 });
 
 mqtt.on('subscribed', () => {
     console.log("MQTT subscribed");
+    mqttReady = true;
 });
 
 mqtt.on('publish', (msg) => handleMqttMessage(msg));
 
-
-function onInit() {
-  console.log('onInit');
-  init(); 
-}
-
 function init() {
     console.log('Starting up...');
-    pinMode(D0, 'output');
-    digitalWrite(D0, HIGH);
     connectWifi();
     keepAlive();
 }
@@ -96,6 +101,7 @@ function connectWifi() {
 
 function connectMQTT() {
     mqtt.connect();
+    clearTimeout(connectionTimer);
     connectionTimer = setTimeout(() => {
         console.log('MQTT reconnecting...');
         connectMQTT();
@@ -106,60 +112,36 @@ function handleMqttMessage(msg) {
     var data = JSON.parse(msg.message);
 
     if(data.action === 'circuit1') {
-    	relay1(data.status);
+    	setPower('relay1', data.status);
     }
     if(data.action === 'circuit2') {
-    	relay2(data.status);
+    	setPower('relay2', data.status);
     }
     if(data.action === 'drophose') {
-    	relay3(data.status);
+    	setPower('relay3', data.status);
+    }
+    if(data.action === 'relay4') {
+    	setPower('relay4', data.status);
     }
 }
 
-function relay1(status) {
-    if(status) {
-        Serial1.write("\xA0\x01\x01\xA2");
-        console.log('relay1 ON');
-    } else {
-        Serial1.write("\xA0\x01\x00\xA1");
-        console.log('relay1 OFF');
-    }
-}
-
-function relay2(status) {
-    if(status) {
-        Serial1.write("\xA0\x02\x01\xA3");
-        console.log('relay2 ON');
-    } else {
-        Serial1.write("\xA0\x02\x00\xA2");
-        console.log('relay2 OFF');
-    }
-}
-
-function relay3(status) {
-    if(status) {
-        Serial1.write("\xA0\x02\x01\xA3");
-        console.log('relay3 ON');
-    } else {
-        Serial1.write("\xA0\x02\x00\xA2");
-        console.log('relay3 OFF');
-    }
-}
-
-function relay4(status) {
-    if(status) {
-        Serial1.write("\xA0\x02\x01\xA3");
-        console.log('relay4 ON');
-    } else {
-        Serial1.write("\xA0\x02\x00\xA2");
-        console.log('relay4 OFF');
-    }
+function setPower(relay, status) {
+	status[relay] = status;
+	Serial1.write(signals[relay][status ? 'on' : 'off']);
+	console.log(relay + ': ' + (status ? 'on' : 'off'));
+	sendStatus();
 }
 
 function sendStatus() {
 	if(mqttReady) {
       var topic = "smarthome/sprinkler";
-      mqtt.publish(topic, JSON.stringify({power: power}));
+      var msg = {
+          circuit1: status.relay1,
+          circuit2: status.relay3,
+          drophose: status.relay2,
+          relay4: status.relay4,
+      };
+      mqtt.publish(topic, JSON.stringify(msg));
     } else {
       console.log("MQTT not ready"); 
       mqttFails++;
