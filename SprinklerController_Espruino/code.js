@@ -125,10 +125,10 @@ function handleMqttMessage(msg) {
     }
 }
 
-function setPower(relay, status) {
-	status[relay] = status;
-	Serial1.write(signals[relay][status ? 'on' : 'off']);
-	console.log(relay + ': ' + (status ? 'on' : 'off'));
+function setPower(relay, power) {
+	status[relay] = power;
+	Serial1.write(signals[relay][power ? 'on' : 'off']);
+	console.log(relay + ': ' + (power ? 'on' : 'off'));
 	sendStatus();
 }
 
