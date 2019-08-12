@@ -15,7 +15,9 @@ var MQTT_OPTIONS = {
     keep_alive: 60,         // keep alive time in seconds
     port: 1883,             // port number
     clean_session: true,
-    protocol_name: "MQTT"
+    protocol_name: "MQTT",
+    username: "smarthome",
+    password: "sobesice"
 };
 
 var power = false;

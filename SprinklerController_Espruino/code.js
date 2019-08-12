@@ -15,7 +15,9 @@ var MQTT_OPTIONS = {
     keep_alive: 60,         // keep alive time in seconds
     port: 1883,             // port number
     clean_session: true,
-    protocol_name: "MQTT"
+    protocol_name: "MQTT",
+    username: 'smarthome',
+    password: 'sobesice'
 };
 
 var mqtt;
@@ -137,8 +139,8 @@ function sendStatus() {
       var topic = "smarthome/sprinkler";
       var msg = {
           circuit1: status.relay1,
-          circuit2: status.relay3,
-          drophose: status.relay2,
+          circuit2: status.relay2,
+          drophose: status.relay3,
           relay4: status.relay4,
       };
       mqtt.publish(topic, JSON.stringify(msg));
