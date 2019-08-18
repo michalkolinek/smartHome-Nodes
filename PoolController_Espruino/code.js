@@ -128,7 +128,7 @@ function setPower(relay, power) {
 function sendStatus() {
 	if(mqttReady) {
       var topic = "smarthome/pool";
-      mqtt.publish(topic, JSON.stringify(status));
+      mqtt.publish(topic, JSON.stringify(status), 2, true);
     } else {
       console.log("MQTT not ready"); 
       mqttFails++;
