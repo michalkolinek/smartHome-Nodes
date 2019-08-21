@@ -15,14 +15,17 @@ var MQTT_OPTIONS = {
     keep_alive: 60,         // keep alive time in seconds
     port: 1883,             // port number
     clean_session: true,
-    protocol_name: "MQTT"
+    protocol_name: "MQTT",
+    username: 'smarthome',
+    password: 'sobesice'
 };
 
 var ROOM = 'office';
 
-var power = false;
+var status = 'up-open';
 var mqtt;
 var connectionTimer = null;
+var keepAliveTimer = null;
 var mqttReady = false;
 var mqttFails = 0;
 var moveTimer = null;
@@ -30,17 +33,18 @@ var moveTimer = null;
 mqtt = MQTT.create(MQTT_SERVER, MQTT_OPTIONS);
 
 mqtt.on('connected', () => {
-    clearInterval(connectionTimer);
+    clearTimeout(connectionTimer);
     console.log("MQTT connected");
-    mqttReady = true;
     mqtt.subscribe("smarthome/controls/blinds");
+    keepAlive();
 });
 
 mqtt.on('disconnected', () => {
     mqttReady = false;
     console.log("MQTT disconnected");
-    clearInterval(connectionTimer);
-    setTimeout(() => {
+    clearTimeout(keepAliveTimer);
+    clearTimeout(connectionTimer);
+    connectionTimer = setTimeout(() => {
         connectMQTT();
     }, MQTT_REPEAT_PERIOD);
 });
@@ -48,14 +52,16 @@ mqtt.on('disconnected', () => {
 mqtt.on('error', () => {
      mqttReady = false;
      console.log("MQTT error");
-     clearInterval(connectionTimer);
-     setTimeout(() => {
+     clearTimeout(keepAliveTimer);
+     clearTimeout(connectionTimer);
+     connectionTimer = setTimeout(() => {
        connectMQTT();
      }, MQTT_REPEAT_PERIOD);
 });
 
 mqtt.on('subscribed', () => {
     console.log("MQTT subscribed");
+    mqttReady = true;
 });
 
 mqtt.on('publish', (msg) => handleMqttMessage(msg));
@@ -63,22 +69,17 @@ mqtt.on('publish', (msg) => handleMqttMessage(msg));
 pinMode(D2, 'input');
 Serial1.setup(115200, { tx: D1, rx: D3 });
 
-function onInit() {
-  console.log('onInit');
-  init();
-}
-
 function init() {
     console.log('Starting up...');
     connectWifi();
-    //keepAlive();
 }
 
 function connectWifi() {
   wifi.connect(WIFI_NAME, WIFI_OPTIONS, (err) => {
     if (err) {
       console.log('Wifi connection failed');
-      setTimeout(() => {
+      clearTimeout(connectionTimer);
+      connectionTimer = setTimeout(() => {
         connectWifi();
       }, WIFI_REPEAT_PERIOD);
     } else {
@@ -89,7 +90,8 @@ function connectWifi() {
 
   wifi.on('disconnected', () => {
     console.log('Wifi disconnected');
-    setTimeout(() => {
+    clearTimeout(connectionTimer);
+    connectionTimer = setTimeout(() => {
         connectWifi();
       }, WIFI_REPEAT_PERIOD);
   });
@@ -97,6 +99,7 @@ function connectWifi() {
 
 function connectMQTT() {
     mqtt.connect();
+    clearTimeout(connectionTimer);
     connectionTimer = setTimeout(() => {
         console.log('MQTT reconnecting...');
         connectMQTT();
@@ -127,9 +130,11 @@ function move(direction, duration) {
         moveDown(false);
         setTimeout(() => {
             moveUp(true);
+            status = 'middle-open';
             moveTimer = setTimeout(() => {
                 moveUp(false);
                 console.log('stopped up');
+                status = 'up-open';
             }, duration * 1000);
         }, 50);
     } else {
@@ -137,8 +142,10 @@ function move(direction, duration) {
         moveUp(false);
         setTimeout(() => {
             moveDown(true);
+            status = 'middle-closed';
             moveTimer = setTimeout(() => {
                 moveDown(false);
+                status = 'down-closed';
                 console.log('stopped down');
             }, duration * 1000);
         }, 50);
@@ -162,20 +169,23 @@ function handleMqttMessage(msg) {
     }
 }
 
-function keepAlive() {
-  setTimeout(() => {
-
-    if(mqttFails > MQTT_FAILS_TO_RESTART) {
-        load(); 
-    }
-
-    if(mqttReady) {
-      var topic = "smarthome/blinds";
-      mqtt.publish(topic, 'ping');
+function sendStatus() {
+	if(mqttReady) {
+      const topic = "smarthome/blinds";
+      const msg = {room: ROOM, status: status}
+      mqtt.publish(topic, JSON.stringify(msg), 2, true);
     } else {
-      console.log("MQTT not ready"); 
+      console.log("MQTT not ready");
       mqttFails++;
     }
+}
+
+function keepAlive() {
+  if(mqttFails > MQTT_FAILS_TO_RESTART) {
+     load();
+  }
+  keepAliveTimer = setTimeout(() => {
+  	sendStatus();
     keepAlive();
   }, KEEP_ALIVE_PERIOD);
 }
