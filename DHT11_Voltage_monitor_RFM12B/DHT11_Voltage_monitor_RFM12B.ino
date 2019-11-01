@@ -21,8 +21,8 @@
 #define RETRY_PERIOD 5    // How soon to retry (in seconds) if ACK didn't come in
 #define RETRY_LIMIT 5     // Maximum number of times to retry
 #define ACK_TIME 10       // Number of milliseconds to wait for an ack
-#define UPDATE_PERIOD 50       // Number of milliseconds to wait for an ack
-#define UPDATE_CYCLES 1180     // Number of cycles between reports
+#define UPDATE_PERIOD 200       // Sleep time in each cycle
+#define UPDATE_CYCLES 3000     // Number of cycles between reports
 
 #define VOLTAGE_PIN A0
 #define LED_PIN 3 // D3

@@ -1,7 +1,7 @@
 var wifi = require('Wifi');
 var MQTT = require("MQTT");
 
-var WIFI_NAME = "kolinet_2.4GHz";
+var WIFI_NAME = "kolinet_ext";
 var WIFI_OPTIONS = { password : "abcabcabca" };
 
 var WIFI_REPEAT_PERIOD = 5000;
@@ -31,7 +31,6 @@ mqtt = MQTT.create(MQTT_SERVER, MQTT_OPTIONS);
 mqtt.on('connected', () => {
     clearTimeout(connectionTimer);
     console.log("MQTT connected");
-    mqttReady = true;
     mqtt.subscribe("smarthome/controls/circulation");
 });
 
@@ -55,9 +54,17 @@ mqtt.on('error', () => {
 
 mqtt.on('subscribed', () => {
     console.log("MQTT subscribed");
+    mqttReady = true;
 });
 
 mqtt.on('publish', (msg) => handleMqttMessage(msg));
+
+wifi.on('disconnected', () => {
+    console.log('Wifi disconnected');
+    setTimeout(() => {
+        connectWifi();
+    }, WIFI_REPEAT_PERIOD);
+});
 
 function init() {
     console.log('Starting up...');
@@ -79,13 +86,6 @@ function connectWifi() {
        connectMQTT();
     }
   });
-
-  wifi.on('disconnected', () => {
-    console.log('Wifi disconnected');
-    setTimeout(() => {
-        connectWifi();
-      }, WIFI_REPEAT_PERIOD);
-  });
 }
 
 function connectMQTT() {
@@ -106,15 +106,16 @@ function handleMqttMessage(msg) {
 }
 
 function setPower(status) {
-  console.log('power: ' + (status ? 'on' : 'off'));
-  digitalWrite(D0, status ? LOW : HIGH); // prehozeno zamerne
+  power = status;
+  digitalWrite(D0, power ? LOW : HIGH); // prehozeno zamerne
+  console.log('power: ' + (power ? 'on' : 'off'));
   sendStatus();
 }
 
 function sendStatus() {
   if(mqttReady) {
     var topic = "smarthome/circulation";
-    var message = JSON.stringify({power: status});
+    var message = JSON.stringify({power: power});
     mqtt.publish(topic, message, {qos: 2, retain: true});
   } else {
      console.log("MQTT not ready"); 
@@ -129,7 +130,7 @@ function keepAlive() {
     	load();
     } else {
     	keepAlive();
-    }    
+    }
   }, KEEP_ALIVE_PERIOD);
 }
 

@@ -8,6 +8,7 @@ var WIFI_REPEAT_PERIOD = 5000;
 var MQTT_REPEAT_PERIOD = 5000;
 var MQTT_FAILS_TO_RESTART = 10;
 var KEEP_ALIVE_PERIOD = 300000;
+var KEEP_ALIVE_MAX_CYCLES = 288; // cca 1 den
 
 var MQTT_SERVER = "192.168.1.103";
 var MQTT_OPTIONS = {
@@ -25,6 +26,7 @@ var connectionTimer = null;
 var keepAliveTimer = null;
 var mqttReady = false;
 var mqttFails = 0;
+var keepAliveCycles = 0;
 
 var signals = {
 	filtering: {on: "\xA0\x01\x01\xA2", off: "\xA0\x01\x00\xA1"},
@@ -136,8 +138,9 @@ function sendStatus() {
 }
 
 function keepAlive() {
-  if(mqttFails > MQTT_FAILS_TO_RESTART) {
-     load(); 
+  clearTimeout(keepAliveTimer);
+  if(mqttFails > MQTT_FAILS_TO_RESTART || keepAliveCycles > KEEP_ALIVE_MAX_CYCLES) {
+     load();
   }
   keepAliveTimer = setTimeout(() => {
   	sendStatus();

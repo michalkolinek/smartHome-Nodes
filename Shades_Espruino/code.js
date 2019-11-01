@@ -22,13 +22,27 @@ var MQTT_OPTIONS = {
 
 var ROOM = 'office';
 
-var status = 'up-open';
+var settings = {
+    fullPositionTime: 36.8,
+    fullAngleTime: 1.2,
+    stepTime: 0.2,
+    interval: 0.1
+};
+
+var status = {
+    position: 0,
+    angle: 0,
+    moving: false
+};
+
 var mqtt;
 var connectionTimer = null;
 var keepAliveTimer = null;
 var mqttReady = false;
 var mqttFails = 0;
 var moveTimer = null;
+var waitDebounce = false;
+var debounced = false;
 
 mqtt = MQTT.create(MQTT_SERVER, MQTT_OPTIONS);
 
@@ -62,6 +76,7 @@ mqtt.on('error', () => {
 mqtt.on('subscribed', () => {
     console.log("MQTT subscribed");
     mqttReady = true;
+    sendStatus();
 });
 
 mqtt.on('publish', (msg) => handleMqttMessage(msg));
@@ -122,58 +137,155 @@ function moveDown(status) {
     }
 }
 
-function move(direction, duration) {
+function initMove(direction, duration) {
     clearTimeout(moveTimer);
+    stopAll();
+    setTimeout(() => {
+        move(direction, duration);
+    }, 50);
+}
 
-    if(direction === 'up') {
-        console.log('moving up');
-        moveDown(false);
-        setTimeout(() => {
-            moveUp(true);
-            status = 'middle-open';
-            moveTimer = setTimeout(() => {
-                moveUp(false);
-                console.log('stopped up');
-                status = 'up-open';
-            }, duration * 1000);
-        }, 50);
+function getInitMovingTime(direction, duration) {
+    if(direction == 'up' && duration > settings.fullAngleTime) {
+        var t = (Math.min(duration, status.position) / settings.fullPositionTime) * -2;
+        var m = t % settings.stepTime;
+        return t - m;
     } else {
-        console.log('moving down');
-        moveUp(false);
-        setTimeout(() => {
-            moveDown(true);
-            status = 'middle-closed';
-            moveTimer = setTimeout(() => {
-                moveDown(false);
-                status = 'down-closed';
-                console.log('stopped down');
-            }, duration * 1000);
-        }, 50);
+        return -0.1;
     }
 }
 
-function stop() {
+function move(direction, duration) {
+    var movingTime = getInitMovingTime(direction, duration);
+    if(direction === 'up') {
+        if(canMoveUp()) {
+            moveUp(true);
+            status.moving = true;
+            moveTimer = setInterval(() => {
+                console.log(duration, status.angle, status.position, movingTime);
+                if(movingTime >= 0) {
+                    if(status.angle > 0) {
+                      status.angle -= settings.interval;
+                    } else {
+                      status.position -= settings.interval;
+                    }
+                }
+                movingTime += settings.interval;
+
+                if(movingTime >= duration || !canMoveUp()) {
+                    moveUp(false);
+                    status.moving = false;
+                    clearInterval(moveTimer);
+                }
+                sendStatus();
+            }, settings.interval * 1000);
+        } else {
+          sendStatus();
+        }
+    } else {
+        if(canMoveDown()) {
+            moveDown(true);
+            status.moving = true;
+            moveTimer = setInterval(() => {
+                console.log(duration, status.angle, status.position, movingTime);
+                if(movingTime >= 0) {
+                    if(status.angle < settings.fullAngleTime) {
+                        status.angle += settings.interval;
+                    } else {
+                        status.position += settings.interval;
+                    }
+                }
+                movingTime += settings.interval;
+
+                if(movingTime >= duration || !canMoveDown()) {
+                    moveDown(false);
+                    status.moving = false;
+                    clearInterval(moveTimer);
+                }
+                sendStatus();
+            }, settings.interval * 1000);
+        } else {
+          sendStatus();
+        }
+    }
+}
+
+function canMoveUp() {
+    return status.position > 0 || status.angle > 0;
+}
+
+function canMoveDown() {
+    return status.position < settings.fullPositionTime || status.angle < settings.fullAngleTime;
+}
+
+function stopAll() {
     clearTimeout(moveTimer);
     moveDown(false);
-    moveUp(false);
+    setTimeout(() => {
+        moveUp(false);
+        status.moving = false;
+        sendStatus();
+    }, 50);
+}
+
+function enableAll() {
+    clearTimeout(moveTimer);
+    moveDown(true);
+    setTimeout(() => {moveUp(true);}, 50);
+}
+
+function resetPosition() {
+    stopAll();
+    setTimeout(() => {
+        moveUp(true);
+        setTimeout(() => {
+            moveUp(false);
+            status.position = 0;
+            status.angle = 0;
+            sendStatus();
+        }, (settings.fullPositionTime + 5) * 1000);
+    }, 100);
 }
 
 function handleMqttMessage(msg) {
     var data = JSON.parse(msg.message);
     if(data.room === ROOM) {
-        if(data.stop) {
-            stop();
-        } else {
-            move(data.direction, data.duration);
+        switch(data.action) {
+            case 'step-up' : move('up', settings.stepTime); break;
+            case 'step-down' : move('down', settings.stepTime); break;
+            case 'open' : move('up', settings.fullAngleTime); break;
+            case 'close' : move('down', settings.fullAngleTime); break;
+            case 'full-up' : move('up', settings.fullPositionTime + settings.fullAngleTime); break;
+            case 'full-down' : move('down', settings.fullPositionTime + settings.fullAngleTime); break;
+            case 'stop' : stopAll(); break;
+            case 'reset' : resetPosition(); break;
         }
     }
 }
 
 function sendStatus() {
 	if(mqttReady) {
-      const topic = "smarthome/blinds";
-      const msg = {room: ROOM, status: status}
-      mqtt.publish(topic, JSON.stringify(msg), 2, true);
+      if(waitDebounce) {
+          debounced = true;
+          return;
+      } else {
+          const topic = "smarthome/blinds";
+          var data = {
+              moving: status.moving,
+              position: Math.round(status.position / settings.fullPositionTime * 100),
+              angle: Math.round(status.angle / settings.fullAngleTime * 100),
+          };
+          const msg =  JSON.stringify({room: ROOM, status: data});
+          mqtt.publish(topic, msg, {qos: 1, retain: true});
+          waitDebounce = true;
+          setTimeout(() => {
+              waitDebounce = false;
+              if(debounced) {
+                  debounced = false;
+                  sendStatus();
+              }
+          }, 1000);
+      }
     } else {
       console.log("MQTT not ready");
       mqttFails++;
